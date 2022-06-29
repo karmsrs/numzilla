@@ -17,9 +17,11 @@ class Defaults:
     max_width = 10 # max_width of a row
     num_start_rows = 6 # number of rows to start with
     sum_value = 10 # numbers can add up to add_value to match
-    min_solve_for_scramble = 0.2 # Must solve min_solve_for_scramble/1.0 of available matches before scramble
-    min_rows_multiple_for_scramble = 4 # if < min_solve_for_scramble/1.0 matches exist, after min_rows_multiple_for_scramble * num_start_rows, replace build button with scramble button
-    match_score = 10 # score added per match
+    scramble_multiplier = 3 # multiple of start rows after which scramble is available
+    build_count_min = 3 # minimum builds before scramble can be used
+    build_count_max = 8 # maximum times build can be used before it is forcibly replaced by scramble
+    build_scramble_threshold = 0.2 # multiplies num_start_rows to create threshold when scramble can go back to build
+    match_score = 1 # score added per match
     score_multiplier = 1 # starting score multiplier
     score_multipliers = [1, 2, 3, 4, 5, 6, 7, 8] # multipliers from which to randomly select new multiplier on scramble
     score_multipliers_weights_low_multi = [0.04, 0.06, 0.1, 0.2, 0.3, 0.2, 0.1]
@@ -47,8 +49,11 @@ class Puzzle:
         self._num_start_rows = num_start_rows
 
         self._sum_value = Defaults.sum_value
-        self._min_solve_for_scramble = Defaults.min_solve_for_scramble
-        self._min_rows_multiple_for_scramble = Defaults.min_rows_multiple_for_scramble
+
+        self._scramble_multiplier = Defaults.scramble_multiplier
+        self._build_count_min = Defaults.build_count_min
+        self._build_count_max = Defaults.build_count_max
+        self._build_scramble_threshold = Defaults.build_scramble_threshold
         self._match_score = Defaults.match_score
         self._score_multiplier = Defaults.score_multiplier
         self._score_multipliers = Defaults.score_multipliers
@@ -67,16 +72,25 @@ class Puzzle:
         self._matches = []
         self._grid_value = 0
         self._row_count = 0
+        self._build_count = 0
 
         self.generate(test)
 
     def generate(self, test=False):
         self.values = []
         self.num_rows = self._num_start_rows
-        for row in range(self._num_start_rows):
-            for column in range(self._max_width):
-                self.values.append(rand())
+        length = self._num_start_rows * self._max_width
+        if not length % 2 == 0:
+            length += 1
+
+        for _ in range(int(length / 2)):
+            add = rand()
+            self.values.append(add)
+            self.values.append(add)
+        shuffle(self.values)
+        self._grid_value_base = None
         self.cleanup()
+        self._grid_value_base = self._grid_value
 
         # if no matches exist, re-generate
         if self._grid_value == 0:
@@ -96,8 +110,11 @@ class Puzzle:
             print('')
 
     def build(self):
+        self._build_count += 1
         self.values += [val for val in self.values if val > 0]
+        self._grid_value_base = None
         self.cleanup()
+        self._grid_value_base = self._grid_value
 
         if self.debug:
             print('BUILD:')
@@ -112,11 +129,13 @@ class Puzzle:
             except RecursionError:
                 self.generate()
 
-
     def scramble(self, test=False):
+        self._build_count = 0
         self.values = [val for val in self.values if val > 0]
         shuffle(self.values)
+        self._grid_value_base = None
         self.cleanup()
+        self._grid_value_base = self._grid_value
 
         # if no matches exist, re-generate
         if self._grid_value == 0:
@@ -187,9 +206,43 @@ class Puzzle:
         # generate matches
         self.find_all()
 
+        self._enable_build = False
+        self._enable_scramble = False
+
+        if (self._grid_value_base == None) or (self._grid_value_base <= 2):
+            if (self._build_count >= self._build_count_min) and (self._grid_value <= 2):
+                if self.debug:
+                    print('#' * 20 + 'SCRAMBLE CATCH!' + '#' * 20)
+                self._enable_scramble = True
+
+        if not self._grid_value_base == None:
+            if self._grid_value <= self._build_scramble_threshold * self._grid_value_base:
+                if self.debug:
+                    print('{0} <= {1} - ENABLE BUILD'.format(self._grid_value, self._build_scramble_threshold * self._grid_value_base))
+                self._enable_build = True
+
+            if (self._build_count >= self._build_count_min) and (self._row_count >= self._num_start_rows * self._scramble_multiplier) and (self._grid_value <= self._build_scramble_threshold * self._grid_value_base):
+                if self.debug:
+                    print('{0} >= {1} && {2} >= {3} && {4} <= {5} - ENABLE SCRAMBLE'.format(self._build_count, self._build_count_min, self._row_count, self._num_start_rows * self._scramble_multiplier, self._grid_value, self._build_scramble_threshold * self._grid_value_base))
+                self._enable_build = False
+                self._enable_scramble = True
+
+            if (self._build_count == self._build_count_max) and (self._grid_value <= self._build_scramble_threshold * self._grid_value_base):
+                if self.debug:
+                    print('{0} == {1} && {2} <= {3} - ENABLE SCRAMBLE'.format(self._build_count, self._build_count_max, self._grid_value, self._build_scramble_threshold * self._grid_value_base))
+                self._enable_build = False
+                self._enable_scramble = True
+
+            if (self._grid_value == 0) and (self._row_count >= self._num_start_rows * self._scramble_multiplier):
+                if self.debug:
+                    print('{0} == 0 && {1} >= {2} - ENABLE SCRAMBLE'.format(self._grid_value, self._row_count, self._num_start_rows * self._scramble_multiplier))
+                self._enable_build = False
+                self._enable_scramble = True
+
+
     def score_match(self):
         # score match
-        self.score += self._match_score * self._score_multiplier
+        self.score += self._match_score * 2 * self._score_multiplier
 
     def score_row(self):
         # score cleared row
@@ -199,9 +252,9 @@ class Puzzle:
         multis = [multi for multi in self._score_multipliers if not multi == self._score_multiplier]
         if self._weighted_score_multiplier:
             if self._score_multiplier <= median(self._score_multipliers):
-                self._score_multiplier = choices(multis, weights=self._score_multipliers_weights_low_multi)
+                self._score_multiplier = choices(multis, weights=self._score_multipliers_weights_low_multi)[0]
             else:
-                self._score_multiplier = choices(multis, weights=self._score_multipliers_weights_high_multi)
+                self._score_multiplier = choices(multis, weights=self._score_multipliers_weights_high_multi)[0]
         else:
             self._score_multiplier = choice(multis)
         
@@ -325,6 +378,62 @@ class Puzzle:
                             break
 
 
+    ### AUTOMATED TESTING ###
+
+    def solve_until_scramble(self):
+        step = 0
+        while not self._enable_scramble:
+            step += 1
+            print('## STEP: {0} ##'.format(step))
+            if self._grid_value > 0:
+                m1, m2 = self.find_match()
+                self.match(m1, m2)
+            else:
+                self.build()
+
+    def solve(self):
+        self.display()
+        max_rows = 0
+        matches = 0
+        builds = 0
+        scrambles = 0
+        step = 0
+        cont1 = True
+        try:
+            while cont1:
+                max_rows = self._row_count if self._row_count > max_rows else max_rows
+                cont2 = True
+                while cont2:
+                    step += 1
+                    max_rows = self._row_count if self._row_count > max_rows else max_rows
+                    if self._grid_value > 0:
+                        m1, m2 = self.find_match()
+                        self.match(m1, m2)
+                        matches += 1
+                        if self.debug:
+                            print('STEP {0:>6} : ROWS {1:>3} :  MATCH   : SCORE {2:>7}'.format(step, self._row_count, self.score))
+                    elif len(self.values) == 0:
+                        cont2 = False
+                    elif self._enable_scramble:
+                        cont2 = False
+                    else:
+                        self.build()
+                        builds += 1
+                        if self.debug:
+                            print('STEP {0:>6} : ROWS {1:>3} :  BUILD   : SCORE {2:>7}'.format(step, self._row_count, self.score))
+                if len(self.values) == 0:
+                    cont1 = False
+                else:
+                    step += 1
+                    self.scramble()
+                    scrambles += 1
+                    if self.debug:
+                        print('STEP {0:>6} : ROWS {1:>3} : SCRAMBLE : SCORE {2:>7}'.format(step, self._row_count, self.score))
+            print('\nDONE!\n  HIGHEST ROW COUNT: {0:>6}\n  TOTAL MATCHES:     {1:>6}\n  TOTAL BUILDS:      {2:>6}\n  TOTAL SCRAMBLES:   {3:>6}'.format(max_rows, matches, builds, scrambles))
+        except KeyboardInterrupt:
+            self.display()
+
+
     ### DEBUG PRINTS ###
 
     def value_format(self, value):
@@ -349,15 +458,34 @@ class Puzzle:
                 _out.append(self.value_format(value))
             out.append(_out)
 
+
+        score_text = 'SCORE: {0}'.format(int(self.score))
+        score_offset = int((((self._max_width * 3) + (self._max_width - 2) - len(score_text)) / 2) + 1)
+        score_offset = 1 if score_offset <= 0 else score_offset
+
         multi_text = 'MULTIPLIER: {0}'.format(self._score_multiplier)
-        offset = int((((self._max_width * 3) + (self._max_width - 2) - len(multi_text)) / 2) + 1)
-        offset = 1 if offset <= 0 else offset
+        multi_offset = int((((self._max_width * 3) + (self._max_width - 2) - len(multi_text)) / 2) + 1)
+        multi_offset = 1 if multi_offset <= 0 else multi_offset
 
-        match_text = 'MATCH VALUE: {0}'.format(int(self._grid_value))
-
-        print(' ' * offset + multi_text)
+        print(' ' * score_offset + score_text)
+        print(' ' * multi_offset + multi_text)
         print('\n'.join([' '.join(row) for row in out]))
-        print(' ' * offset + match_text)
+
+        print('\n  GRID BASE:      {0:.2f}'.format(self._grid_value_base))
+        print('  GRID VALUE:     {0:.2f}'.format(self._grid_value))
+        print('  ROW COUNT:      {0}'.format(self._row_count))
+        print('  BUILD COUNT:    {0}'.format(self._build_count))
+        print('')
+
+        if self._enable_build:
+            print(' +BUILD ENABLED')
+        else:
+            print('  BUILD DISABLED')
+
+        if self._enable_scramble:
+            print(' *SCRAMBLE ENABLED')
+        else:
+            print('  SCRAMBLE DISABLED')
 
 
 def unit_test():
@@ -380,20 +508,18 @@ def unit_test():
 
     print('build new rows')
     p.build()
+
+    # print('solve until scramble enabled')
+    # p.solve_until_scramble()
     
-    print('scramble puzzle')
-    p.scramble()
+    # print('scramble puzzle')
+    # p.scramble()
+
+    _ = input('solve puzzle')
+    p = Puzzle()
+    p.solve()
 
 if __name__ == '__main__':
-    unit_test()
-    
-
-
-## TODO:
-#    find_all_matches  (to calculcate min_solve_for_scramble)
-#    count_rows
-#    remove rows during count_rows
-#    starting score multiplier
-#    score for matches
-#    score for removed row
-#    score multiplier randomization during scramble
+    # unit_test()
+    p = Puzzle()
+    p.solve()
