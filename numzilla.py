@@ -434,10 +434,10 @@ class Puzzle:
                   7: 0,
                   8: 0}
         step = 0
-        cont1 = True
+        cont = True
         skip_first_scramble = True
         try:
-            while cont1:
+            while cont:
                 max_rows = self._row_count if self._row_count > max_rows else max_rows
                 if skip_first_scramble:
                     skip_first_scramble = False
@@ -455,43 +455,11 @@ class Puzzle:
                                 self._multiplier,
                                 self.score))
                     multis[self._multiplier] += 1
-                cont2 = True
-                while cont2:
-                    step += 1
-                    max_rows = self._row_count if self._row_count > max_rows else max_rows
-                    if self._grid_matches > 0:
-                        matches += 1
-                        m1, m2 = self.find_match()
-                        self.match(m1, m2)
-                        if self.debug < 0:
-                            output(out_fmt.format(
-                                step,
-                                'MATCH',
-                                self._row_count,
-                                self._num_count,
-                                self._grid_matches,
-                                self._multiplier,
-                                self.score))
-                    elif len(self.values) == 0:
-                        cont2 = False
-                    elif self._enable_scramble:
-                        cont2 = False
-                    else:
-                        builds += 1
-                        self.build()
-                        if self.debug < 0:
-                            output(out_fmt.format(
-                                step,
-                                'BUILD',
-                                self._row_count,
-                                self._num_count,
-                                self._grid_matches,
-                                self._multiplier,
-                                self.score))
+                max_rows, matches, builds, step = self.solve_until_scramble(max_rows, matches, builds, step)
                 if len(self.values) == 0:
-                    cont1 = False
+                    cont = False
                 if not fully_solve:
-                    cont1 = False
+                    cont = False
             output(solve_fmt.format(step, max_rows, matches, builds, scrambles, self.score))
             for i in range(1, 9):
                 output('  {0} : {1}'.format(i, multis[i] * '*'))
@@ -500,6 +468,42 @@ class Puzzle:
         end = (datetime.now() - start).total_seconds()
         output('TOTAL RUNTIME: {0}'.format(end))
         return scrambles
+
+    def solve_until_scramble(self, max_rows=0, matches=0, builds=0, step=0):
+        cont = True
+        while cont:
+            step += 1
+            max_rows = self._row_count if self._row_count > max_rows else max_rows
+            if self._grid_matches > 0:
+                matches += 1
+                m1, m2 = self.find_match()
+                self.match(m1, m2)
+                if self.debug < 0:
+                    output(out_fmt.format(
+                        step,
+                        'MATCH',
+                        self._row_count,
+                        self._num_count,
+                        self._grid_matches,
+                        self._multiplier,
+                        self.score))
+            elif len(self.values) == 0:
+                cont = False
+            elif self._enable_scramble:
+                cont = False
+            else:
+                builds += 1
+                self.build()
+                if self.debug < 0:
+                    output(out_fmt.format(
+                        step,
+                        'BUILD',
+                        self._row_count,
+                        self._num_count,
+                        self._grid_matches,
+                        self._multiplier,
+                        self.score))
+        return max_rows, matches, builds, step
 
     ### DEBUG PRINTS ###
 
@@ -564,7 +568,7 @@ def unit_test():
 
     output('????? attempt to scramble without matches')
     _ = input('(press enter to continue)')
-    p.safe_test_scramble()
+    _p.safe_test_scramble()
 
     output('????? generate puzzle')
     _ = input('(press enter to continue)')
