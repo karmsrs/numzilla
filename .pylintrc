@@ -118,10 +118,13 @@ disable=raw-checker-failed,
         useless-suppression,
         deprecated-pragma,
         use-symbolic-message-instead,
-        C0301,
-        C0303,
+        C0103,
+        C0113,
         C0114,
-        C0116
+        C0116,
+        C0209,
+        C0301,
+        C0303
 # Enable the message, report, category or checker with the given id(s). You can
 # either give multiple identifier separated by comma (,) or put this option
 # multiple time (only on the command line, not in the configuration file where
