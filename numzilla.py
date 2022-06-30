@@ -108,9 +108,10 @@ class Puzzle:
         self._grid_value = 0
         self._row_count = 0
         self._build_count = 0
+        self._consecutive_builds = 0
+        self._num_count = 0
         self._enable_build = False
         self._enable_scramble = False
-        self._consecutive_builds = 0
         self._prev_cleanup = None
         self._start_scramble_rows = self._num_start_rows
 
@@ -446,12 +447,12 @@ class Puzzle:
                     self.scramble()
                     if self.debug < 0:
                         output(out_fmt.format(
-                                step, 
-                                'SCRAMBLE', 
-                                self._row_count, 
-                                self._num_count, 
-                                self._grid_matches, 
-                                self._multiplier, 
+                                step,
+                                'SCRAMBLE',
+                                self._row_count,
+                                self._num_count,
+                                self._grid_matches,
+                                self._multiplier,
                                 self.score))
                     multis[self._multiplier] += 1
                 cont2 = True
@@ -464,12 +465,12 @@ class Puzzle:
                         self.match(m1, m2)
                         if self.debug < 0:
                             output(out_fmt.format(
-                                step, 
-                                'MATCH', 
-                                self._row_count, 
-                                self._num_count, 
-                                self._grid_matches, 
-                                self._multiplier, 
+                                step,
+                                'MATCH',
+                                self._row_count,
+                                self._num_count,
+                                self._grid_matches,
+                                self._multiplier,
                                 self.score))
                     elif len(self.values) == 0:
                         cont2 = False
@@ -480,12 +481,12 @@ class Puzzle:
                         self.build()
                         if self.debug < 0:
                             output(out_fmt.format(
-                                step, 
-                                'BUILD', 
-                                self._row_count, 
-                                self._num_count, 
-                                self._grid_matches, 
-                                self._multiplier, 
+                                step,
+                                'BUILD',
+                                self._row_count,
+                                self._num_count,
+                                self._grid_matches,
+                                self._multiplier,
                                 self.score))
                 if len(self.values) == 0:
                     cont1 = False
@@ -513,7 +514,7 @@ class Puzzle:
 
     def display(self, values=None):
         out = []
-        if values == None:
+        if values is None:
             values = self.values
 
         rows = self.build_rows(values)
@@ -559,7 +560,7 @@ class Puzzle:
 def unit_test():
     output('????? attempt to generate without matches')
     _ = input('(press enter to continue)')
-    p = Puzzle(debug=2, max_width=5, num_start_rows=1, test=True)
+    _p = Puzzle(debug=2, max_width=5, num_start_rows=1, test=True)
 
     output('????? attempt to scramble without matches')
     _ = input('(press enter to continue)')
@@ -567,57 +568,57 @@ def unit_test():
 
     output('????? generate puzzle')
     _ = input('(press enter to continue)')
-    p = Puzzle(debug=2)
+    _p = Puzzle(debug=2)
 
     output('????? attempt invalid match')
     _ = input('(press enter to continue)')
-    m1, m2 = p.find_invalid_match()
-    p.match(m1, m2)
+    m1, m2 = _p.find_invalid_match()
+    _p.match(m1, m2)
 
     output('????? attempt match')
     _ = input('(press enter to continue)')
-    m1, m2 = p.find_match()
-    p.match(m1, m2)
+    m1, m2 = _p.find_match()
+    _p.match(m1, m2)
 
     output('????? build new rows')
     _ = input('(press enter to continue)')
-    p.build()
+    _p.build()
 
     output('????? solve until scramble enabled')
     _ = input('(press enter to continue)')
-    p.solve(False)
+    _p.solve(False)
     _ = input('(press enter to continue)')
 
-    output('????? scramble puzzle')
+    output('????? scramble _p.zzle')
     _ = input('(press enter to continue)')
-    p.scramble()
-    _ = input('(press enter to continue)')
-
-    output('????? solve puzzle - debug 2')
-    _ = input('(press enter to continue)')
-    p = Puzzle(debug=2)
-    p.solve()
+    _p.scramble()
     _ = input('(press enter to continue)')
 
-    output('????? solve puzzle - debug 1')
+    output('????? solve _p.zzle - debug 2')
     _ = input('(press enter to continue)')
-    p = Puzzle(debug=1)
-    p.solve()
-    _ = input('(press enter to continue)')
-
-    output('????? solve puzzle - debug -1')
-    _ = input('(press enter to continue)')
-    p = Puzzle(debug=-1)
-    p.solve()
+    _p = Puzzle(debug=2)
+    _p.solve()
     _ = input('(press enter to continue)')
 
-    output('????? solve puzzle - debug 0')
+    output('????? solve _p.zzle - debug 1')
     _ = input('(press enter to continue)')
-    p = Puzzle()
-    p.solve()
+    _p = Puzzle(debug=1)
+    _p.solve()
+    _ = input('(press enter to continue)')
+
+    output('????? solve _p.zzle - debug -1')
+    _ = input('(press enter to continue)')
+    _p = Puzzle(debug=-1)
+    _p.solve()
+    _ = input('(press enter to continue)')
+
+    output('????? solve _p.zzle - debug 0')
+    _ = input('(press enter to continue)')
+    _p = Puzzle()
+    _p.solve()
     _ = input('(press enter to continue)')
 
 if __name__ == '__main__':
     # unit_test()
-    p = Puzzle(debug=-1)
-    p.solve()
+    _p = Puzzle(debug=-1)
+    _p.solve()
