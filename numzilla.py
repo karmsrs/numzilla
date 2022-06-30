@@ -310,7 +310,7 @@ class Puzzle:
     ### SEARCH ITERATION BUILDERS ###
 
     def build_rows(self, values=None):
-        if values == None:
+        if values is None:
             values = self.values
         return [values[col: col + self._max_width] for col in range(0, len(values), self._max_width)]
 
@@ -337,6 +337,7 @@ class Puzzle:
                         m1 = self.col_row_from_index(index)
                         m2 = self.col_row_from_index(_index + index + 1)
                         return (m1, m2)
+        return None
 
     def find_match(self):
         return choice(self._matches)
@@ -434,10 +435,10 @@ class Puzzle:
                   7: 0,
                   8: 0}
         step = 0
-        cont = True
+        cont1 = True
         skip_first_scramble = True
         try:
-            while cont:
+            while cont1:
                 max_rows = self._row_count if self._row_count > max_rows else max_rows
                 if skip_first_scramble:
                     skip_first_scramble = False
@@ -455,11 +456,43 @@ class Puzzle:
                                 self._multiplier,
                                 self.score))
                     multis[self._multiplier] += 1
-                max_rows, matches, builds, step = self.solve_until_scramble(max_rows, matches, builds, step)
+                cont2 = True
+                while cont2:
+                    step += 1
+                    max_rows = self._row_count if self._row_count > max_rows else max_rows
+                    if self._grid_matches > 0:
+                        matches += 1
+                        m1, m2 = self.find_match()
+                        self.match(m1, m2)
+                        if self.debug < 0:
+                            output(out_fmt.format(
+                                step,
+                                'MATCH',
+                                self._row_count,
+                                self._num_count,
+                                self._grid_matches,
+                                self._multiplier,
+                                self.score))
+                    elif len(self.values) == 0:
+                        cont2 = False
+                    elif self._enable_scramble:
+                        cont2 = False
+                    else:
+                        builds += 1
+                        self.build()
+                        if self.debug < 0:
+                            output(out_fmt.format(
+                                step,
+                                'BUILD',
+                                self._row_count,
+                                self._num_count,
+                                self._grid_matches,
+                                self._multiplier,
+                                self.score))
                 if len(self.values) == 0:
-                    cont = False
+                    cont1 = False
                 if not fully_solve:
-                    cont = False
+                    cont1 = False
             output(solve_fmt.format(step, max_rows, matches, builds, scrambles, self.score))
             for i in range(1, 9):
                 output('  {0} : {1}'.format(i, multis[i] * '*'))
@@ -469,42 +502,6 @@ class Puzzle:
         output('TOTAL RUNTIME: {0}'.format(end))
         return scrambles
 
-    def solve_until_scramble(self, max_rows=0, matches=0, builds=0, step=0):
-        cont = True
-        while cont:
-            step += 1
-            max_rows = self._row_count if self._row_count > max_rows else max_rows
-            if self._grid_matches > 0:
-                matches += 1
-                m1, m2 = self.find_match()
-                self.match(m1, m2)
-                if self.debug < 0:
-                    output(out_fmt.format(
-                        step,
-                        'MATCH',
-                        self._row_count,
-                        self._num_count,
-                        self._grid_matches,
-                        self._multiplier,
-                        self.score))
-            elif len(self.values) == 0:
-                cont = False
-            elif self._enable_scramble:
-                cont = False
-            else:
-                builds += 1
-                self.build()
-                if self.debug < 0:
-                    output(out_fmt.format(
-                        step,
-                        'BUILD',
-                        self._row_count,
-                        self._num_count,
-                        self._grid_matches,
-                        self._multiplier,
-                        self.score))
-        return max_rows, matches, builds, step
-
     ### DEBUG PRINTS ###
 
     def value_format(self, value):
@@ -513,8 +510,7 @@ class Puzzle:
 
         if value > 0:
             return fmt.format(value)
-        else:
-            return used_fmt.format(value * -1)
+        return used_fmt.format(value * -1)
 
     def display(self, values=None):
         out = []
