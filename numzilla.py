@@ -1,10 +1,35 @@
+from datetime import datetime
 from random import randint, shuffle, choice, choices
 from statistics import median
 
-DEBUG = False # PRINTS AFTER BASIC GAME OPERATIONS
+DEBUG = 0 # PRINTS DEBUG INFO TO CONSOLE
+          # -1 = PRINT DEBUG FOR SOLVE ONLY
+          # 0 = OFF
+          # 1 = ON
+          # 2 = PRINTS GRID EACH STEP
 
 def rand():
     return randint(1, 9)
+
+def output(msg):
+    out_fmt = '{0} : {1}'
+    now = datetime.now()
+    timestamp = now.strftime('%H:%M:%S.%f')
+
+    if '\n' in msg:
+        msg = '\n'.join([out_fmt.format(timestamp, line) for line in msg.split('\n')])
+    else:
+        msg = out_fmt.format(timestamp, msg)
+    print(msg)
+
+def cleanup(func):
+    def wrapper(self, *func_args, **func_kwargs):
+        func(self, *func_args, **func_kwargs)
+        self.find_all()
+        self.cleanup(func.__name__)
+        if self.debug == 2:
+            self.display()
+    return wrapper
 
 ### CONVENTIONS ###
 #  col = 1 indexed column number (excel-style)
@@ -16,24 +41,29 @@ def rand():
 class Defaults:
     max_width = 10 # max_width of a row
     num_start_rows = 6 # number of rows to start with
-    sum_value = 10 # numbers can add up to add_value to match
-    scramble_multiplier = 3 # multiple of start rows after which scramble is available
-    build_count_min = 3 # minimum builds before scramble can be used
-    build_count_max = 8 # maximum times build can be used before it is forcibly replaced by scramble
-    build_scramble_threshold = 0.2 # multiplies num_start_rows to create threshold when scramble can go back to build
-    match_score = 1 # score added per match
-    score_multiplier = 1 # starting score multiplier
-    score_multipliers = [1, 2, 3, 4, 5, 6, 7, 8] # multipliers from which to randomly select new multiplier on scramble
-    score_multipliers_weights_low_multi = [0.04, 0.06, 0.1, 0.2, 0.3, 0.2, 0.1]
-    score_multipliers_weights_high_multi = [0.1, 0.2, 0.3, 0.2, 0.1, 0.06, 0.04]
-    weighted_score_multiplier = True
+    scramble_rows = 20 # number of rows before scramble is available
+    build_count_min = 6 # minimum build counts by which if necessary rows for scramble haven't been reached, scramble is enabled
+    build_count_max = 12 # maximum times build can be used before it is forcibly replaced by scramble
+    build_scramble_threshold = 4 # number of matches must be less than this for build or scramble to be available
 
-    # match valuation for finding matches
+    # match valuation for finding matches and grading them
     row_match = 1.2
     col_match = 1.0
     reuse_match = 0.2
 
+    # SCORING
+    sum_value = 10 # numbers can add up to add_value to match
 
+    single_score = 1 # score added per number for a match
+    row_score = 10 # score added per row removed when a match is made
+    sum_multiplier = 2 # score multiplier when match sums to the sum value
+
+    multiplier = 1 # starting score multiplier
+    multiplier_population = [1, 2, 3, 4, 5, 6, 7, 8] # multipliers from which to randomly select new multiplier on scramble
+    # weights for population distribution of multipliers
+    multipliers_weights_current_low = [0.04, 0.06, 0.1, 0.2, 0.3, 0.2, 0.1]
+    multipliers_weights_current_high = [0.1, 0.2, 0.3, 0.2, 0.1, 0.06, 0.04]
+    weighted_multiplier = True
 
 class Puzzle:
 
@@ -47,35 +77,44 @@ class Puzzle:
         self.debug = debug
         self._max_width = max_width
         self._num_start_rows = num_start_rows
-
-        self._sum_value = Defaults.sum_value
-
-        self._scramble_multiplier = Defaults.scramble_multiplier
+        self._scramble_rows = Defaults.scramble_rows
         self._build_count_min = Defaults.build_count_min
         self._build_count_max = Defaults.build_count_max
         self._build_scramble_threshold = Defaults.build_scramble_threshold
-        self._match_score = Defaults.match_score
-        self._score_multiplier = Defaults.score_multiplier
-        self._score_multipliers = Defaults.score_multipliers
-        self._weighted_score_multiplier = Defaults.weighted_score_multiplier
-        self._score_multipliers_weights_low_multi = Defaults.score_multipliers_weights_low_multi
-        self._score_multipliers_weights_high_multi = Defaults.score_multipliers_weights_high_multi
 
         self._row_match = Defaults.row_match
         self._col_match = Defaults.col_match
         self._reuse_match = Defaults.reuse_match
 
+        self._sum_value = Defaults.sum_value
+
+        self._single_score = Defaults.single_score
+        self._row_score = Defaults.row_score
+        self._sum_multiplier = Defaults.sum_multiplier
+
+        self._multiplier = Defaults.multiplier
+        self._multiplier_population = Defaults.multiplier_population
+        self._multipliers_weights_current_low = Defaults.multipliers_weights_current_low
+        self._multipliers_weights_current_high = Defaults.multipliers_weights_current_high
+        self._weighted_multiplier = Defaults.weighted_multiplier
 
         self.score = 0
 
         self.values = []
         self._matches = []
+        self._grid_matches = 0
         self._grid_value = 0
         self._row_count = 0
         self._build_count = 0
+        self._enable_build = False
+        self._enable_scramble = False
+        self._consecutive_builds = 0
+        self._prev_cleanup = None
+        self._start_scramble_rows = self._num_start_rows
 
         self.generate(test)
 
+    @cleanup
     def generate(self, test=False):
         self.values = []
         self.num_rows = self._num_start_rows
@@ -87,39 +126,29 @@ class Puzzle:
             add = rand()
             self.values.append(add)
             self.values.append(add)
-        shuffle(self.values)
-        self._grid_value_base = None
-        self.cleanup()
-        self._grid_value_base = self._grid_value
+        self._grid_matches = 0
 
         # if no matches exist, re-generate
-        if self._grid_value == 0:
-            if self.debug:
-                print('GENERATE:')
-                self.display()
-                print('  NO MATCHES - RE-GENERATING')
-                print('')
-            return self.generate(test=False)
+        while self._grid_matches == 0:
+            shuffle(self.values)
+            self.find_all()
+            if test:
+                self._grid_matches = 0
+                test = False
+            if self._grid_matches == 0:
+                if self.debug > 0:
+                    output('### GENERATE: NO MATCHES, REGENERATING')
 
-        if test:
-            return self.generate(test)
+        if self.debug > 0:
+            output('### GENERATE')
 
-        if self.debug:
-            print('GENERATE:')
-            self.display()
-            print('')
-
+    @cleanup
     def build(self):
         self._build_count += 1
         self.values += [val for val in self.values if val > 0]
-        self._grid_value_base = None
-        self.cleanup()
-        self._grid_value_base = self._grid_value
 
-        if self.debug:
-            print('BUILD:')
-            self.display()
-            print('')
+        if self.debug > 0:
+            output('### BUILD')
 
     def safe_test_scramble(self):
         while True:
@@ -129,134 +158,138 @@ class Puzzle:
             except RecursionError:
                 self.generate()
 
+    @cleanup
     def scramble(self, test=False):
         self._build_count = 0
         self.values = [val for val in self.values if val > 0]
-        shuffle(self.values)
-        self._grid_value_base = None
-        self.cleanup()
-        self._grid_value_base = self._grid_value
+        self._grid_matches = 0
 
         # if no matches exist, re-generate
-        if self._grid_value == 0:
-            if self.debug:
-                print('SCRAMBLE:')
-                self.display()
-                print('  NO MATCHES - RE-SCRAMBLING')
-                print('')
-            return self.scramble(test=False)
-
-        if test:
-            return self.scramble(test)
+        while self._grid_matches == 0:
+            shuffle(self.values)
+            self.find_all()
+            if test:
+                self._grid_matches = 0
+                test = False
+            if self._grid_matches == 0:
+                if self.debug > 0:
+                    output('### SCRAMBLE: NO MATCHES, SCRAMBLING')
 
         self.set_score_multiplier()
+        self._start_scramble_rows = len(self.build_rows())
 
-        if self.debug:
-            print('SCRAMBLE:')
-            self.display()
-            print('')
+        if self.debug > 0:
+            output('### SCRAMBLE: NEW MULTIPLIER = {0}'.format(self._multiplier))
 
+    def is_match(self, v1, v2):
+        if v1 == v2:
+            return 1
+        if v1 + v2 == self._sum_value:
+            return 2
+        return 0
+
+    @cleanup
     def match(self, m1, m2):
-        match = False
-        
         i1 = self.index_from_col_row(*m1)
         v1 = self.values[i1]
         i2 = self.index_from_col_row(*m2)
         v2 = self.values[i2]
 
-        if self.is_match(v1, v2):
-            match = True
+        match = self.is_match(v1, v2)
+
+        if match > 0:
             self.values[i1] *= -1
             self.values[i2] *= -1
-            self.score_match()
-            self.cleanup()
-            if self.debug:
-                print('MATCH:')
-                self.display()
-                print('')
+            single_count = 2
+            row_count = self.row_removal()
+            score = self.score_match(match, single_count, row_count)
+            self.score += score
+            if self.debug > 0:
+                match_text = 'PAIR' if match == 1 else 'SUM'
+                if row_count > 0:
+                    output('MATCH: {0}: {1} & {2}: {3} | {4} + {5} ROW(s) REMOVED | SCORE: {6}'.format(m1, v1, m2, v2, match_text, row_count, score))
+                else:
+                    output('MATCH: {0}: {1} & {2}: {3} | {4} | SCORE: {5}'.format(m1, v1, m2, v2, match_text, score))
         else:
-            if self.debug:
-                print('MATCH:')
-                v1 = self.value_format(v1)
-                v2 = self.value_format(v2)
-                print('  INVALID MATCH:')
-                print('    {0} = {1}'.format(m1, v1))
-                print('    {0} = {1}'.format(m2, v2))
-                print('')
+            if self.debug > 0:
+                v1 = v1 if v1 > 0 else '_'
+                v2 = v2 if v2 > 0 else '_'
+                output('MATCH: {0}: {1} & {2}: {3} | INVALID MATCH'.format(m1, v1, m2, v2))
 
-    def is_match(self, v1, v2):
-        if v1 == v2:
-            return True
-        if v1 + v2 == self._sum_value:
-            return True
-        return False
-
-    def cleanup(self):
+    def row_removal(self):
         rows = self.build_rows()
         self.values = []
 
+        rows_removed = 0
+
         for row in rows:
             if all(val < 0 for val in row):
-                self.score_row()
+                rows_removed += 1
             else:
                 self.values += row
 
         self._row_count = len(self.build_rows())
+        return rows_removed
+
+    def score_match(self, match, single_count, row_count):
+        # score match
+        match -= 1
+        return self._multiplier * (self._sum_multiplier ** match) * (self._single_score * single_count + self._row_score * row_count)
+
+    def set_score_multiplier(self):
+        population = [multiplier for multiplier in self._multiplier_population if not multiplier == self._multiplier]
+        if self._weighted_multiplier:
+            if self._multiplier <= median(self._multiplier_population):
+                self._multiplier = choices(population, weights=self._multipliers_weights_current_low)[0]
+            else:
+                self._multiplier = choices(population, weights=self._multipliers_weights_current_high)[0]
+        else:
+            self._multiplier = choice(population)
+
+    def cleanup(self, calling_method):
+        if (calling_method == 'build') and (self._prev_cleanup == calling_method):
+            self._consecutive_builds += 1
+        else:
+            self._consecutive_builds = 0
+        self._prev_cleanup = calling_method
 
         # generate matches
+        self._row_count = len(self.build_rows())
+        self._num_count = len([value for value in self.values if value > 0])
         self.find_all()
+
+        prev_build = self._enable_build
+        prev_scramble = self._enable_scramble
 
         self._enable_build = False
         self._enable_scramble = False
 
-        if (self._grid_value_base == None) or (self._grid_value_base <= 2):
-            if (self._build_count >= self._build_count_min) and (self._grid_value <= 2):
-                if self.debug:
-                    print('#' * 20 + 'SCRAMBLE CATCH!' + '#' * 20)
+        if (self._grid_matches == 0) and (self._consecutive_builds == 2) and (self._row_count >= self._scramble_rows * 0.4):
+            self._enable_scramble = True
+        if (self._consecutive_builds == 2) and ((self._num_count / self._row_count) >= 0.4) and (self._row_count >= self._scramble_rows * 0.4) and (self._grid_matches <= self._build_scramble_threshold):
+            self._enable_scramble = True
+        elif (self._consecutive_builds == 3) and (self._row_count >= self._scramble_rows * 0.4) and (self._grid_matches <= self._build_scramble_threshold):
+            self._enable_scramble = True
+        elif (self._build_count >= self._build_count_min) and (self._row_count >= self._scramble_rows):
+            self._enable_scramble = True
+        elif self._grid_matches <= self._build_scramble_threshold:
+            if self._build_count == self._build_count_max:
                 self._enable_scramble = True
-
-        if not self._grid_value_base == None:
-            if self._grid_value <= self._build_scramble_threshold * self._grid_value_base:
-                if self.debug:
-                    print('{0} <= {1} - ENABLE BUILD'.format(self._grid_value, self._build_scramble_threshold * self._grid_value_base))
+            elif self._row_count >= self._scramble_rows:
+                self._enable_scramble = True
+            else:
                 self._enable_build = True
 
-            if (self._build_count >= self._build_count_min) and (self._row_count >= self._num_start_rows * self._scramble_multiplier) and (self._grid_value <= self._build_scramble_threshold * self._grid_value_base):
-                if self.debug:
-                    print('{0} >= {1} && {2} >= {3} && {4} <= {5} - ENABLE SCRAMBLE'.format(self._build_count, self._build_count_min, self._row_count, self._num_start_rows * self._scramble_multiplier, self._grid_value, self._build_scramble_threshold * self._grid_value_base))
-                self._enable_build = False
-                self._enable_scramble = True
-
-            if (self._build_count == self._build_count_max) and (self._grid_value <= self._build_scramble_threshold * self._grid_value_base):
-                if self.debug:
-                    print('{0} == {1} && {2} <= {3} - ENABLE SCRAMBLE'.format(self._build_count, self._build_count_max, self._grid_value, self._build_scramble_threshold * self._grid_value_base))
-                self._enable_build = False
-                self._enable_scramble = True
-
-            if (self._grid_value == 0) and (self._row_count >= self._num_start_rows * self._scramble_multiplier):
-                if self.debug:
-                    print('{0} == 0 && {1} >= {2} - ENABLE SCRAMBLE'.format(self._grid_value, self._row_count, self._num_start_rows * self._scramble_multiplier))
-                self._enable_build = False
-                self._enable_scramble = True
-
-
-    def score_match(self):
-        # score match
-        self.score += self._match_score * 2 * self._score_multiplier
-
-    def score_row(self):
-        # score cleared row
-        self.score += (self._match_score * self._max_width) * self._score_multiplier
-
-    def set_score_multiplier(self):
-        multis = [multi for multi in self._score_multipliers if not multi == self._score_multiplier]
-        if self._weighted_score_multiplier:
-            if self._score_multiplier <= median(self._score_multipliers):
-                self._score_multiplier = choices(multis, weights=self._score_multipliers_weights_low_multi)[0]
-            else:
-                self._score_multiplier = choices(multis, weights=self._score_multipliers_weights_high_multi)[0]
-        else:
-            self._score_multiplier = choice(multis)
+        if self.debug > 0:
+            if self._enable_build and not prev_build:
+                output('### + BUILD ENABLED')
+            elif not self._enable_build and prev_build:
+                output('### - BUILD DISABLED')
+            if self._enable_scramble and not prev_scramble:
+                output('### * SCRAMBLE ENABLED')
+                self.display()
+            elif not self._enable_scramble and prev_scramble:
+                output('### o SCRAMBLE DISABLED')
         
 
     ### INDEX CONVERSION ###
@@ -318,6 +351,7 @@ class Puzzle:
     def find_all(self):
         self._matches = []
         self._grid_value = 0
+        self._grid_matches = 0
         _used = []
 
         # by index (_row_match)
@@ -328,6 +362,7 @@ class Puzzle:
                         m1 = self.col_row_from_index(index)
                         m2 = self.col_row_from_index(len(self.values) - 1)
                         self._matches.append((m1, m2))
+                        self._grid_matches += 1
                         if (m1 in _used) or (m2 in _used):
                             if not m1 in _used:
                                 _used.append(m1)
@@ -344,6 +379,7 @@ class Puzzle:
                             m1 = self.col_row_from_index(index)
                             m2 = self.col_row_from_index(_index + index + 1)
                             self._matches.append((m1, m2))
+                            self._grid_matches += 1
                             if (m1 in _used) or (m2 in _used):
                                 if not m1 in _used:
                                     _used.append(m1)
@@ -365,6 +401,7 @@ class Puzzle:
                                 m1 = self.col_row_from_col_row_num(col_num, row_num)
                                 m2 = self.col_row_from_col_row_num(col_num, _row_num + row_num + 1)
                                 self._matches.append((m1, m2))
+                                self._grid_matches += 1
                                 if (m1 in _used) or (m2 in _used):
                                     if not m1 in _used:
                                         _used.append(m1)
@@ -380,56 +417,93 @@ class Puzzle:
 
     ### AUTOMATED TESTING ###
 
-    def solve_until_scramble(self):
-        step = 0
-        while not self._enable_scramble:
-            step += 1
-            print('## STEP: {0} ##'.format(step))
-            if self._grid_value > 0:
-                m1, m2 = self.find_match()
-                self.match(m1, m2)
-            else:
-                self.build()
+    def solve(self, fully_solve=True):
+        out_fmt = 'STEP {0:>6} | {1:^8} | ROWS {2:>3} | NUMS {3:>4} | MATCHES {4:>5} | MULTIPLIER {5} | SCORE {6:>7} '
+        solve_fmt = '### SOLVE\n'
+        solve_fmt += '  TOTAL STEPS:       {0:>6}\n'
+        solve_fmt += '  HIGHEST ROW COUNT: {1:>6}\n'
+        solve_fmt += '  TOTAL MATCHES:     {2:>6}\n'
+        solve_fmt += '  TOTAL BUILDS:      {3:>6}\n'
+        solve_fmt += '  TOTAL SCRAMBLES:   {4:>6}\n'
+        solve_fmt += '  SCORE:             {5:>6}\n'
+        solve_fmt += '  MULTIPLIERS:'
 
-    def solve(self):
         self.display()
         max_rows = 0
         matches = 0
         builds = 0
         scrambles = 0
+        multis = {1: 1,
+                  2: 0,
+                  3: 0,
+                  4: 0,
+                  5: 0,
+                  6: 0,
+                  7: 0,
+                  8: 0}
         step = 0
         cont1 = True
+        skip_first_scramble = True
         try:
             while cont1:
                 max_rows = self._row_count if self._row_count > max_rows else max_rows
+                if skip_first_scramble:
+                    skip_first_scramble = False
+                else:
+                    step += 1
+                    scrambles += 1
+                    self.scramble()
+                    if self.debug < 0:
+                        output(out_fmt.format(
+                                step, 
+                                'SCRAMBLE', 
+                                self._row_count, 
+                                self._num_count, 
+                                self._grid_matches, 
+                                self._multiplier, 
+                                self.score))
+                    multis[self._multiplier] += 1
                 cont2 = True
                 while cont2:
                     step += 1
                     max_rows = self._row_count if self._row_count > max_rows else max_rows
-                    if self._grid_value > 0:
+                    if self._grid_matches > 0:
+                        matches += 1
                         m1, m2 = self.find_match()
                         self.match(m1, m2)
-                        matches += 1
-                        if self.debug:
-                            print('STEP {0:>6} : ROWS {1:>3} :  MATCH   : SCORE {2:>7}'.format(step, self._row_count, self.score))
+                        if self.debug < 0:
+                            output(out_fmt.format(
+                                step, 
+                                'MATCH', 
+                                self._row_count, 
+                                self._num_count, 
+                                self._grid_matches, 
+                                self._multiplier, 
+                                self.score))
                     elif len(self.values) == 0:
                         cont2 = False
                     elif self._enable_scramble:
                         cont2 = False
                     else:
-                        self.build()
                         builds += 1
-                        if self.debug:
-                            print('STEP {0:>6} : ROWS {1:>3} :  BUILD   : SCORE {2:>7}'.format(step, self._row_count, self.score))
+                        self.build()
+                        if self.debug < 0:
+                            output(out_fmt.format(
+                                step, 
+                                'BUILD', 
+                                self._row_count, 
+                                self._num_count, 
+                                self._grid_matches, 
+                                self._multiplier, 
+                                self.score))
                 if len(self.values) == 0:
                     cont1 = False
-                else:
-                    step += 1
-                    self.scramble()
-                    scrambles += 1
-                    if self.debug:
-                        print('STEP {0:>6} : ROWS {1:>3} : SCRAMBLE : SCORE {2:>7}'.format(step, self._row_count, self.score))
-            print('\nDONE!\n  HIGHEST ROW COUNT: {0:>6}\n  TOTAL MATCHES:     {1:>6}\n  TOTAL BUILDS:      {2:>6}\n  TOTAL SCRAMBLES:   {3:>6}'.format(max_rows, matches, builds, scrambles))
+                if not fully_solve:
+                    cont1 = False
+            if (self.debug < 0) or (self.debug > 0):
+                output(solve_fmt.format(step, max_rows, matches, builds, scrambles, self.score))
+                for i in range(1, 9):
+                    output('  {0} : {1}'.format(i, multis[i] * '*'))
         except KeyboardInterrupt:
             self.display()
 
@@ -463,63 +537,92 @@ class Puzzle:
         score_offset = int((((self._max_width * 3) + (self._max_width - 2) - len(score_text)) / 2) + 1)
         score_offset = 1 if score_offset <= 0 else score_offset
 
-        multi_text = 'MULTIPLIER: {0}'.format(self._score_multiplier)
+        multi_text = 'MULTIPLIER: {0}'.format(self._multiplier)
         multi_offset = int((((self._max_width * 3) + (self._max_width - 2) - len(multi_text)) / 2) + 1)
         multi_offset = 1 if multi_offset <= 0 else multi_offset
 
-        print(' ' * score_offset + score_text)
-        print(' ' * multi_offset + multi_text)
-        print('\n'.join([' '.join(row) for row in out]))
+        inner_sep = '-' * (self._max_width * 3 + (self._max_width - 1))
+        outer_sep = '=' * (self._max_width * 3 + (self._max_width - 1))
 
-        print('\n  GRID BASE:      {0:.2f}'.format(self._grid_value_base))
-        print('  GRID VALUE:     {0:.2f}'.format(self._grid_value))
-        print('  ROW COUNT:      {0}'.format(self._row_count))
-        print('  BUILD COUNT:    {0}'.format(self._build_count))
-        print('')
+        output(outer_sep)
+        output(' ' * score_offset + score_text)
+        output(' ' * multi_offset + multi_text)
+        output('\n'.join([' '.join(row) for row in out]))
+        output(inner_sep)
+        output('  GRID MATCHES:   {0}'.format(self._grid_matches))
+        output('  GRID VALUE:     {0:.2f}'.format(self._grid_value))
+        output('  ROW COUNT:      {0}'.format(self._row_count))
+        output('  BUILD COUNT:    {0}'.format(self._build_count))
+        output(inner_sep)
 
         if self._enable_build:
-            print(' +BUILD ENABLED')
+            output(' +BUILD ENABLED')
         else:
-            print('  BUILD DISABLED')
+            output('  BUILD DISABLED')
 
         if self._enable_scramble:
-            print(' *SCRAMBLE ENABLED')
+            output(' *SCRAMBLE ENABLED')
         else:
-            print('  SCRAMBLE DISABLED')
+            output('  SCRAMBLE DISABLED')
+        output(outer_sep)
 
 
 def unit_test():
-    print('attempt to generate without matches')
-    p = Puzzle(debug=True, max_width=5, num_start_rows=1, test=True)
+    output('????? attempt to generate without matches')
+    _ = input('(press enter to continue)')
+    p = Puzzle(debug=2, max_width=5, num_start_rows=1, test=True)
 
-    print('attempt to scramble without matches')
+    output('????? attempt to scramble without matches')
+    _ = input('(press enter to continue)')
     p.safe_test_scramble()
 
-    print('generate puzzle')
-    p = Puzzle(debug=True)
+    output('????? generate puzzle')
+    _ = input('(press enter to continue)')
+    p = Puzzle(debug=2)
 
-    print('attempt invalid match')
+    output('????? attempt invalid match')
+    _ = input('(press enter to continue)')
     m1, m2 = p.find_invalid_match()
     p.match(m1, m2)
 
-    print('attempt match')
+    output('????? attempt match')
+    _ = input('(press enter to continue)')
     m1, m2 = p.find_match()
     p.match(m1, m2)
 
-    print('build new rows')
+    output('????? build new rows')
+    _ = input('(press enter to continue)')
     p.build()
 
-    # print('solve until scramble enabled')
-    # p.solve_until_scramble()
-    
-    # print('scramble puzzle')
-    # p.scramble()
+    output('????? solve until scramble enabled')
+    _ = input('(press enter to continue)')
+    p.solve(False)
+    _ = input('(press enter to continue)')
 
-    _ = input('solve puzzle')
+    output('????? scramble puzzle')
+    _ = input('(press enter to continue)')
+    p.scramble()
+    _ = input('(press enter to continue)')
+
+    output('????? solve puzzle - debug 2')
+    _ = input('(press enter to continue)')
+    p = Puzzle(debug=2)
+    p.solve()
+    _ = input('(press enter to continue)')
+
+    output('????? solve puzzle - debug 1')
+    _ = input('(press enter to continue)')
+    p = Puzzle(debug=1)
+    p.solve()
+    _ = input('(press enter to continue)')
+
+    output('????? solve puzzle - debug 0')
+    _ = input('(press enter to continue)')
     p = Puzzle()
     p.solve()
+    _ = input('(press enter to continue)')
 
 if __name__ == '__main__':
-    # unit_test()
-    p = Puzzle()
-    p.solve()
+    unit_test()
+    # p = Puzzle()
+    # p.solve()
