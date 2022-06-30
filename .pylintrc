@@ -130,6 +130,7 @@ disable=raw-checker-failed,
         R0903,
         R0904,
         R0912,
+        R0914,
         R0915,
         R1702
 # Enable the message, report, category or checker with the given id(s). You can
