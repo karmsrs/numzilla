@@ -8,6 +8,7 @@ DEBUG = 0 # PRINTS DEBUG INFO TO CONSOLE
           # 1 = ON
           # 2 = PRINTS GRID EACH STEP
 
+# helper methods
 def rand():
     return randint(1, 9)
 
@@ -64,6 +65,7 @@ class Defaults:
     multipliers_weights_current_low = [0.04, 0.06, 0.1, 0.2, 0.3, 0.2, 0.1]
     multipliers_weights_current_high = [0.1, 0.2, 0.3, 0.2, 0.1, 0.06, 0.04]
     weighted_multiplier = True
+
 
 class Puzzle:
 
@@ -146,7 +148,6 @@ class Puzzle:
     def build(self):
         self._build_count += 1
         self.values += [val for val in self.values if val > 0]
-
         if self.debug > 0:
             output('### BUILD')
 
@@ -194,7 +195,6 @@ class Puzzle:
         v1 = self.values[i1]
         i2 = self.index_from_col_row(*m2)
         v2 = self.values[i2]
-
         match = self.is_match(v1, v2)
 
         if match > 0:
@@ -207,27 +207,24 @@ class Puzzle:
             if self.debug > 0:
                 match_text = 'PAIR' if match == 1 else 'SUM'
                 if row_count > 0:
-                    output('MATCH: {0}: {1} & {2}: {3} | {4} + {5} ROW(s) REMOVED | SCORE: {6}'.format(m1, v1, m2, v2, match_text, row_count, score))
+                    output('### MATCH: {0}: {1} & {2}: {3} | {4} + {5} ROW(s) REMOVED | SCORE: {6}'.format(m1, v1, m2, v2, match_text, row_count, score))
                 else:
-                    output('MATCH: {0}: {1} & {2}: {3} | {4} | SCORE: {5}'.format(m1, v1, m2, v2, match_text, score))
+                    output('### MATCH: {0}: {1} & {2}: {3} | {4} | SCORE: {5}'.format(m1, v1, m2, v2, match_text, score))
         else:
             if self.debug > 0:
                 v1 = v1 if v1 > 0 else '_'
                 v2 = v2 if v2 > 0 else '_'
-                output('MATCH: {0}: {1} & {2}: {3} | INVALID MATCH'.format(m1, v1, m2, v2))
+                output('### MATCH: {0}: {1} & {2}: {3} | INVALID MATCH'.format(m1, v1, m2, v2))
 
     def row_removal(self):
         rows = self.build_rows()
         self.values = []
-
         rows_removed = 0
-
         for row in rows:
             if all(val < 0 for val in row):
                 rows_removed += 1
             else:
                 self.values += row
-
         self._row_count = len(self.build_rows())
         return rows_removed
 
@@ -287,10 +284,8 @@ class Puzzle:
                 output('### - BUILD DISABLED')
             if self._enable_scramble and not prev_scramble:
                 output('### * SCRAMBLE ENABLED')
-                self.display()
             elif not self._enable_scramble and prev_scramble:
                 output('### o SCRAMBLE DISABLED')
-        
 
     ### INDEX CONVERSION ###
 
@@ -311,14 +306,12 @@ class Puzzle:
         (col, row) = self.col_row_from_col_row_num(col_num, row_num)
         return self.index_from_col_row(col, row)
 
-
     ### SEARCH ITERATION BUILDERS ###
 
     def build_rows(self, values=None):
         if values == None:
             values = self.values
         return [values[col: col + self._max_width] for col in range(0, len(values), self._max_width)]
-
 
     def build_columns(self):
         rows = [self.values[col: col + self._max_width] for col in range(0, len(self.values), self._max_width)]
@@ -330,7 +323,6 @@ class Puzzle:
                     _col.append(row[col_num])
             cols.append(_col)
         return cols
-
 
     ### SEARCHING OPERATIONS ###
 
@@ -414,10 +406,10 @@ class Puzzle:
                                     self._grid_value += self._col_match
                             break
 
-
     ### AUTOMATED TESTING ###
 
     def solve(self, fully_solve=True):
+        start = datetime.now()
         out_fmt = 'STEP {0:>6} | {1:^8} | ROWS {2:>3} | NUMS {3:>4} | MATCHES {4:>5} | MULTIPLIER {5} | SCORE {6:>7} '
         solve_fmt = '### SOLVE\n'
         solve_fmt += '  TOTAL STEPS:       {0:>6}\n'
@@ -427,7 +419,6 @@ class Puzzle:
         solve_fmt += '  TOTAL SCRAMBLES:   {4:>6}\n'
         solve_fmt += '  SCORE:             {5:>6}\n'
         solve_fmt += '  MULTIPLIERS:'
-
         self.display()
         max_rows = 0
         matches = 0
@@ -500,13 +491,14 @@ class Puzzle:
                     cont1 = False
                 if not fully_solve:
                     cont1 = False
-            if (self.debug < 0) or (self.debug > 0):
-                output(solve_fmt.format(step, max_rows, matches, builds, scrambles, self.score))
-                for i in range(1, 9):
-                    output('  {0} : {1}'.format(i, multis[i] * '*'))
+            output(solve_fmt.format(step, max_rows, matches, builds, scrambles, self.score))
+            for i in range(1, 9):
+                output('  {0} : {1}'.format(i, multis[i] * '*'))
         except KeyboardInterrupt:
             self.display()
-
+        end = (datetime.now() - start).total_seconds()
+        output('TOTAL RUNTIME: {0}'.format(end))
+        return scrambles
 
     ### DEBUG PRINTS ###
 
@@ -521,7 +513,6 @@ class Puzzle:
 
     def display(self, values=None):
         out = []
-
         if values == None:
             values = self.values
 
@@ -531,7 +522,6 @@ class Puzzle:
             for value in row:
                 _out.append(self.value_format(value))
             out.append(_out)
-
 
         score_text = 'SCORE: {0}'.format(int(self.score))
         score_offset = int((((self._max_width * 3) + (self._max_width - 2) - len(score_text)) / 2) + 1)
@@ -559,7 +549,6 @@ class Puzzle:
             output(' +BUILD ENABLED')
         else:
             output('  BUILD DISABLED')
-
         if self._enable_scramble:
             output(' *SCRAMBLE ENABLED')
         else:
@@ -616,6 +605,12 @@ def unit_test():
     p.solve()
     _ = input('(press enter to continue)')
 
+    output('????? solve puzzle - debug -1')
+    _ = input('(press enter to continue)')
+    p = Puzzle(debug=-1)
+    p.solve()
+    _ = input('(press enter to continue)')
+
     output('????? solve puzzle - debug 0')
     _ = input('(press enter to continue)')
     p = Puzzle()
@@ -623,6 +618,6 @@ def unit_test():
     _ = input('(press enter to continue)')
 
 if __name__ == '__main__':
-    unit_test()
-    # p = Puzzle()
-    # p.solve()
+    # unit_test()
+    p = Puzzle(debug=-1)
+    p.solve()
